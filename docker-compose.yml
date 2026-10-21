@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   artex:
-    image: ${ARTEX_IMAGE:-forxiucn/artex}:${ARTEX_TAG:-latest}
+    image: ${ARTEX_IMAGE:-diebug/artex}:${ARTEX_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy

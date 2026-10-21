@@ -9,7 +9,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
 </div>
 
-本仓库为独立维护的 [forxiucn/ARTEX](https://github.com/forxiucn/ARTEX)，保留 https://github.com/Autumn-27/ARTEX 的原始提交历史与 AGPL-3.0 许可证。程序发布包从本仓库 Releases 下载，Docker 镜像 [forxiucn/artex](https://hub.docker.com/r/forxiucn/artex) 由本仓库 GitHub Actions 构建并发布。
+本仓库为独立维护的 [forxiucn/ARTEX](https://github.com/forxiucn/ARTEX)，保留 https://github.com/Autumn-27/ARTEX 的原始提交历史与 AGPL-3.0 许可证。程序发布包从本仓库 Releases 下载，Docker 镜像 [diebug/artex](https://hub.docker.com/r/diebug/artex) 由本仓库 GitHub Actions 构建并发布。
 
 ---
 
@@ -125,13 +125,13 @@ cd ARTEX
 git clone https://github.com/forxiucn/ARTEX.git
 cd ARTEX
 cp .env.example .env          # 填 POSTGRES_PASSWORD、可选 ANTHROPIC_API_KEY
-docker compose up -d          # 拉取 forxiucn/artex 镜像 + postgres
+docker compose up -d          # 拉取 diebug/artex 镜像 + postgres
 # → http://localhost:8787
 ```
 
 镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与 `./data` 以绑定挂载持久化。
 
-`.env` 中默认 `ARTEX_IMAGE=forxiucn/artex`，`ARTEX_TAG=latest` 使用最新镜像，也可固定为 `v0.3.17`（完整镜像地址 `forxiucn/artex:v0.3.17`）。镜像支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与宿主机匹配的架构，ARM64 Kali 无需自行编译。初次部署请修改 `POSTGRES_PASSWORD`；运行服务无需配置 Docker Hub 发布 Token。
+`.env` 中默认 `ARTEX_IMAGE=diebug/artex`，`ARTEX_TAG=latest` 使用最新镜像，也可固定为 `v0.3.17`（完整镜像地址 `diebug/artex:v0.3.17`）。镜像支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与宿主机匹配的架构，ARM64 Kali 无需自行编译。初次部署请修改 `POSTGRES_PASSWORD`；运行服务无需配置 Docker Hub 发布 Token。
 
 远程 MCP 可在系统设置中选择 `http`（Streamable HTTP）或 `sse`（旧版 SSE）。
 旧版 SSE 服务通常使用 `GET /sse` 建立事件流，再通过服务返回的
@@ -212,7 +212,7 @@ git push origin v0.3.22-beta.1
 
 工作流固定标签对应的提交，用 Node.js 22 导出前端，按照 `go.mod` 指定的 Go 版本编译内嵌前端的五个平台程序，并生成 ZIP 与 `SHA256SUMS`。AMD64 和 ARM64 镜像分别在 GitHub 原生 runner 上构建，连接临时 PostgreSQL 验证程序启动、版本和内嵌前端；两种架构都通过后发布多架构镜像。预发布只发布版本标签，稳定版额外更新 `latest`。镜像发布成功后上传完整 ZIP 和校验文件，最后公开 Release。已公开的同版本不允许覆盖，应发布新标签。
 
-Docker 镜像默认发布到 `forxiucn/artex`。如需改用其它 Docker Hub 仓库，可在本仓库 Settings → Secrets and variables → Actions 中设置变量 `ARTEX_DOCKER_IMAGE`；同时配置 Secrets `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`（须有镜像推送权限）。程序包通过 GitHub 自带 `GITHUB_TOKEN` 上传，镜像通过上述凭据推送到 Docker Hub。凭据只供工作流登录使用，不写入源码或镜像。镜像地址同时记录在 `.env.example` 和 Compose 默认值中。
+Docker 镜像默认发布到 `diebug/artex`。如需改用其它 Docker Hub 仓库，可在本仓库 Settings → Secrets and variables → Actions 中设置变量 `ARTEX_DOCKER_IMAGE`；同时配置 Secrets `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`（须有镜像推送权限）。程序包通过 GitHub 自带 `GITHUB_TOKEN` 上传，镜像通过上述凭据推送到 Docker Hub。凭据只供工作流登录使用，不写入源码或镜像。镜像地址同时记录在 `.env.example` 和 Compose 默认值中。
 
 ### 已有 Docker 部署迁移到本仓库镜像
 

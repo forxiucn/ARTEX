@@ -28,7 +28,7 @@ jobs:
         id: version
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          ARTEX_DOCKER_IMAGE: ${{ vars.ARTEX_DOCKER_IMAGE || 'forxiucn/artex' }}
+          ARTEX_DOCKER_IMAGE: ${{ vars.ARTEX_DOCKER_IMAGE || 'diebug/artex' }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$ ]]; then
             echo "版本必须是 v主版本.次版本.修订号，可带 -alpha.N、-beta.N 或 -rc.N，例如 v0.3.22-beta.1" >&2
@@ -182,7 +182,7 @@ jobs:
             dist/SHA256SUMS
           generate_release_notes: true
           body: |
-            Docker Hub 镜像：`${{ vars.ARTEX_DOCKER_IMAGE || 'forxiucn/artex' }}:${{ needs.prepare.outputs.tag }}`。稳定版本同时更新 `latest`，预发布版本保留独立标签。
+            Docker Hub 镜像：`${{ vars.ARTEX_DOCKER_IMAGE || 'diebug/artex' }}:${{ needs.prepare.outputs.tag }}`。稳定版本同时更新 `latest`，预发布版本保留独立标签。
             支持 Linux AMD64 / ARM64，Docker 会自动选择宿主机架构。
             程序包提供 Linux、macOS 的 AMD64 / ARM64 及 Windows AMD64，并附 SHA256SUMS。
             部署和在线更新说明见本仓库 README。
@@ -271,7 +271,7 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ vars.ARTEX_DOCKER_IMAGE || 'forxiucn/artex' }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
+          tags: ${{ vars.ARTEX_DOCKER_IMAGE || 'diebug/artex' }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.tag }}
@@ -291,7 +291,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Publish multi-platform image
         env:
-          IMAGE: ${{ vars.ARTEX_DOCKER_IMAGE || 'forxiucn/artex' }}
+          IMAGE: ${{ vars.ARTEX_DOCKER_IMAGE || 'diebug/artex' }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           if [[ "$RELEASE_TAG" == *-* ]]; then
