@@ -3,9 +3,13 @@ package selfupdate
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"html"
+	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +22,9 @@ const Repo = "forxiucn/ARTEX"
 // latestURL 查询最新已发布 Release（包括 beta 预发布），以便 beta 用户可从应用内继续更新。
 // GitHub 不提供“最新预发布版”专用接口；列表接口会排除草稿并包含 prerelease。
 const latestURL = "https://api.github.com/repos/" + Repo + "/releases?per_page=1"
+
+// GitHub serves the public release feed and release assets without consuming API quota.
+const latestFeedURL = "https://github.com/" + Repo + "/releases.atom"
 
 // allowedHosts 限定升级链路能访问的域名。配合下面的 checkRedirect，
 // 任何一跳被重定向到名单外的主机都会直接失败——这是防止 DNS 污染 / 中间人
@@ -132,17 +139,20 @@ func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 	if err != nil {
 		return nil, fmt.Errorf("访问 GitHub 失败（可在版本与更新中配置更新代理）: %w", err)
 	}
-	defer resp.Body.Close()
 
 	switch {
 	case resp.StatusCode == http.StatusForbidden, resp.StatusCode == http.StatusTooManyRequests:
 		// 未认证的 GitHub API 是每 IP 每小时 60 次，共用出口 IP 时很容易撞上。
-		return nil, fmt.Errorf("GitHub 接口限流（每小时 60 次），请稍后再试")
+		resp.Body.Close()
+		return fetchLatestFromFeed(ctx, c)
 	case resp.StatusCode == http.StatusNotFound:
+		resp.Body.Close()
 		return nil, fmt.Errorf("仓库 %s 不可访问或尚未发布版本", Repo)
 	case resp.StatusCode != http.StatusOK:
+		resp.Body.Close()
 		return nil, fmt.Errorf("GitHub 返回 %d", resp.StatusCode)
 	}
+	defer resp.Body.Close()
 
 	var releases []Release
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
@@ -156,6 +166,125 @@ func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 		return nil, fmt.Errorf("Release 缺少 tag")
 	}
 	return &rel, nil
+}
+
+type atomFeed struct {
+	Entries []struct {
+		ID      string `xml:"id"`
+		Title   string `xml:"title"`
+		Updated string `xml:"updated"`
+		Content string `xml:"content"`
+		Links   []struct {
+			Href string `xml:"href,attr"`
+			Rel  string `xml:"rel,attr"`
+		} `xml:"link"`
+	} `xml:"entry"`
+}
+
+var releaseAssetLink = regexp.MustCompile(`(?i)<a\s+href="([^"]+/releases/download/[^\"]+)"[^>]*>\s*<span[^>]*>([^<]+)</span>`)
+
+func parseReleaseAssets(page, tag string, rel *Release) error {
+	expectedPrefix := "/" + Repo + "/releases/download/" + tag + "/"
+	for _, match := range releaseAssetLink.FindAllStringSubmatch(page, -1) {
+		href, err := url.PathUnescape(html.UnescapeString(match[1]))
+		if err != nil || !strings.HasPrefix(href, expectedPrefix) {
+			continue
+		}
+		name := strings.TrimSpace(html.UnescapeString(match[2]))
+		if name == "" || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+			continue
+		}
+		u := &url.URL{Scheme: "https", Host: "github.com", Path: href}
+		if err := checkURL(u); err != nil {
+			continue
+		}
+		rel.Assets = append(rel.Assets, Asset{Name: name, URL: u.String()})
+	}
+	if len(rel.Assets) == 0 {
+		return fmt.Errorf("Release feed 可用，但没有找到可下载资产")
+	}
+	return nil
+}
+
+func fetchLatestFromFeed(ctx context.Context, c *http.Client) (*Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestFeedURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkURL(req.URL); err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "artex-selfupdate")
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GitHub API 限流，且公开 Release feed 访问失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API 限流，公开 Release feed 返回 %d", resp.StatusCode)
+	}
+	var feed atomFeed
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&feed); err != nil {
+		return nil, fmt.Errorf("解析 GitHub Release feed 失败: %w", err)
+	}
+	if len(feed.Entries) == 0 {
+		return nil, fmt.Errorf("仓库 %s 尚未发布版本", Repo)
+	}
+	entry := feed.Entries[0]
+	tag := strings.TrimSpace(entry.ID[strings.LastIndex(entry.ID, "/")+1:])
+	if _, ok := parseVersion(tag); !ok {
+		return nil, fmt.Errorf("GitHub Release feed 中的版本标签无效")
+	}
+	rel := &Release{TagName: tag, Name: strings.TrimSpace(entry.Title), Body: entry.Content, Prerelease: IsPrereleaseVersion(tag)}
+	if rel.Name == "" {
+		rel.Name = tag
+	}
+	if entry.Updated != "" {
+		rel.PublishedAt, _ = time.Parse(time.RFC3339, entry.Updated)
+	}
+	for _, link := range entry.Links {
+		if link.Rel == "alternate" && link.Href != "" {
+			u, parseErr := url.Parse(link.Href)
+			if parseErr == nil && checkURL(u) == nil && u.Hostname() == "github.com" {
+				rel.HTMLURL = u.String()
+				break
+			}
+		}
+	}
+	if rel.HTMLURL == "" {
+		rel.HTMLURL = "https://github.com/" + Repo + "/releases/tag/" + url.PathEscape(tag)
+	}
+	assetsURL := "https://github.com/" + Repo + "/releases/expanded_assets/" + url.PathEscape(tag)
+	assetsURLParsed, err := url.Parse(assetsURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkURL(assetsURLParsed); err != nil {
+		return nil, err
+	}
+	assetsReq, err := http.NewRequestWithContext(ctx, http.MethodGet, assetsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	assetsResp, err := c.Do(assetsReq)
+	if err != nil {
+		return nil, fmt.Errorf("读取 Release 安装包列表失败: %w", err)
+	}
+	defer assetsResp.Body.Close()
+	if assetsResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("读取 Release 安装包列表失败: GitHub 返回 %d", assetsResp.StatusCode)
+	}
+	assetsHTML, err := io.ReadAll(io.LimitReader(assetsResp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("读取 Release 安装包列表失败: %w", err)
+	}
+	if err := parseReleaseAssets(string(assetsHTML), tag, rel); err != nil {
+		return nil, err
+	}
+	if _, ok := rel.FindAsset("SHA256SUMS"); !ok {
+		return nil, fmt.Errorf("Release feed 中未找到 SHA256SUMS，拒绝提供更新")
+	}
+	return rel, nil
 }
 
 // AssetName 返回当前平台对应的发布包名，与 build.sh 的 package_binary 保持一致：
