@@ -84,9 +84,15 @@ func TestCompareVersions(t *testing.T) {
 		{"0.3.7", "v0.3.7", 0, true},
 		{"0.9.0", "0.10.0", -1, true}, // 按数字比而不是字典序
 		{"1.0.0", "0.99.99", 1, true},
+		{"0.3.22-beta.1", "0.3.21", 1, true},
+		{"0.3.22-beta.1", "0.3.22-beta.2", -1, true},
+		{"0.3.22-beta.2", "0.3.22-beta.1", 1, true},
+		{"0.3.22-beta.1", "0.3.22", -1, true},
+		{"0.3.22-rc.1", "0.3.22-beta.9", 1, true},
 		// 开发构建必须判为不可比较，否则会被正式版覆盖掉未提交的改动。
 		{"dev", "0.3.8", 0, false},
 		{"0.3.7-2-gabc1234", "0.3.8", 0, false},
+		{"0.3.22-beta", "0.3.22", 0, false},
 		{"0.3.7-dirty", "0.3.8", 0, false},
 		{"0.3", "0.3.8", 0, false},
 		{"", "0.3.8", 0, false},
@@ -100,6 +106,9 @@ func TestCompareVersions(t *testing.T) {
 		if ok && got != c.want {
 			t.Errorf("CompareVersions(%q,%q)=%d, 期望 %d", c.a, c.b, got, c.want)
 		}
+	}
+	if !IsPrereleaseVersion("v0.3.22-beta.1") || IsPrereleaseVersion("0.3.22") || IsPrereleaseVersion("0.3.22-beta") {
+		t.Fatal("IsPrereleaseVersion did not distinguish supported prerelease versions")
 	}
 }
 

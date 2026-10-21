@@ -123,40 +123,82 @@ func CompareVersions(a, b string) (int, bool) {
 		return 0, false
 	}
 	for i := range 3 {
-		if av[i] != bv[i] {
-			if av[i] < bv[i] {
+		if av.core[i] != bv.core[i] {
+			if av.core[i] < bv.core[i] {
 				return -1, true
 			}
 			return 1, true
 		}
 	}
-	return 0, true
+	if av.pre == bv.pre && av.preNumber == bv.preNumber {
+		return 0, true
+	}
+	if av.pre == "" {
+		return 1, true
+	}
+	if bv.pre == "" {
+		return -1, true
+	}
+	stage := map[string]int{"alpha": 1, "beta": 2, "rc": 3}
+	if stage[av.pre] < stage[bv.pre] {
+		return -1, true
+	}
+	if stage[av.pre] > stage[bv.pre] {
+		return 1, true
+	}
+	if av.preNumber < bv.preNumber {
+		return -1, true
+	}
+	return 1, true
 }
 
-// parseVersion 解析 "v0.3.7" / "0.3.7" 形式的版本号为 [3]int。
+type semanticVersion struct {
+	core      [3]int
+	pre       string
+	preNumber int
+}
+
+// parseVersion 解析 v0.3.7、0.3.7 与 v0.3.8-beta.1 等版本。
 //
-// 只接受纯净的三段式：build.sh 在非 tag 构建时用 git describe 产出
-// "0.3.7-2-gabc1234" 这类带后缀的版本，它们必须被判为不可比较，而不是被当成
-// 0.3.7 —— 否则开发构建会被误判为"已是最新"或被正式版覆盖。
-func parseVersion(s string) ([3]int, bool) {
+// 只接受三段式或 alpha/beta/rc 预发布号。git describe 产出的
+// "0.3.7-2-gabc1234" 和 dev/dirty 构建仍必须判为不可比较。
+func parseVersion(s string) (semanticVersion, bool) {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "v")
 	if s == "" {
-		return [3]int{}, false
+		return semanticVersion{}, false
 	}
-	parts := strings.Split(s, ".")
+	base, pre, hasPre := strings.Cut(s, "-")
+	parts := strings.Split(base, ".")
 	if len(parts) != 3 {
-		return [3]int{}, false
+		return semanticVersion{}, false
 	}
-	var out [3]int
+	var out semanticVersion
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 0 {
-			return [3]int{}, false
+			return semanticVersion{}, false
 		}
-		out[i] = n
+		out.core[i] = n
+	}
+	if hasPre {
+		parts := strings.Split(pre, ".")
+		if len(parts) != 2 || (parts[0] != "alpha" && parts[0] != "beta" && parts[0] != "rc") {
+			return semanticVersion{}, false
+		}
+		n, err := strconv.Atoi(parts[1])
+		if err != nil || n < 1 {
+			return semanticVersion{}, false
+		}
+		out.pre, out.preNumber = parts[0], n
 	}
 	return out, true
+}
+
+// IsPrereleaseVersion reports whether s is a supported alpha, beta, or rc version.
+func IsPrereleaseVersion(s string) bool {
+	v, ok := parseVersion(s)
+	return ok && v.pre != ""
 }
 
 // InDocker 报告进程是否跑在容器里。Docker 下换装写的是容器可写层，

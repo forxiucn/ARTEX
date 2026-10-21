@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   artex:
-    image: ${ARTEX_IMAGE:-ruoji6/artex}:${ARTEX_TAG:-latest}
+    image: ${ARTEX_IMAGE:-forxiucn/artex}:${ARTEX_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,9 +31,11 @@ services:
       - "8787:8787"
       - "127.0.0.1:8788:8788"
     volumes:
-      # 把数据目录（含 jwt.key、SQLite 等）绑定到项目根目录的 data/，
+      # 把数据目录（SQLite 等）绑定到项目根目录的 data/，
       # 方便在宿主机直接查看/备份，容器重建也不丢。
       - ./data:/app/data
+      # JWT 签名密钥在项目根目录，与可浏览的数据目录分开持久化。
+      - ./jwt.key:/app/jwt.key
       # 把项目根目录的 skills 挂进容器（覆盖镜像内置的 /app/skills）；
       # 改 skill 无需重建镜像，容器读的就是宿主机这份。
       - ./skills:/app/skills

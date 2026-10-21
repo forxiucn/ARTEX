@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.3.22-beta.1] - 2026-10-21
+
+### 发布与更新
+
+- 将程序在线更新源切换到 `forxiucn/ARTEX`，检查最新已发布版本时包含 beta 预发布版。
+- 支持 alpha、beta、rc 版本比较；本地 Docker `dev` 镜像可从 beta 版进入在线更新通道。
+- GitHub Actions 支持发布预发布标签及对应多架构镜像，不移动稳定版 `latest`，不触发 Demo 部署。
+
 ## [0.3.18] - 2026-10-12
 
 ### 审批审查

@@ -13,10 +13,11 @@ import (
 
 // Repo 是发布源。写死而不是做成配置项：更新源可配等于给任何能改配置的人一条
 // 远程代码执行通道，对一个渗透测试平台来说这个口子开不得。
-const Repo = "RuoJi6/ARTEX"
+const Repo = "forxiucn/ARTEX"
 
-// latestURL 是 GitHub 的"最新正式版"接口。它会自动跳过 prerelease 和 draft。
-const latestURL = "https://api.github.com/repos/" + Repo + "/releases/latest"
+// latestURL 查询最新已发布 Release（包括 beta 预发布），以便 beta 用户可从应用内继续更新。
+// GitHub 不提供“最新预发布版”专用接口；列表接口会排除草稿并包含 prerelease。
+const latestURL = "https://api.github.com/repos/" + Repo + "/releases?per_page=1"
 
 // allowedHosts 限定升级链路能访问的域名。配合下面的 checkRedirect，
 // 任何一跳被重定向到名单外的主机都会直接失败——这是防止 DNS 污染 / 中间人
@@ -115,7 +116,7 @@ func checkURL(u *url.URL) error {
 	return nil
 }
 
-// FetchLatest 查询最新正式版。
+// FetchLatest 查询最新已发布版本（包含预发布版本）。
 func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestURL, nil)
 	if err != nil {
@@ -138,15 +139,19 @@ func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 		// 未认证的 GitHub API 是每 IP 每小时 60 次，共用出口 IP 时很容易撞上。
 		return nil, fmt.Errorf("GitHub 接口限流（每小时 60 次），请稍后再试")
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("仓库 %s 不可访问或尚未发布正式版本", Repo)
+		return nil, fmt.Errorf("仓库 %s 不可访问或尚未发布版本", Repo)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("GitHub 返回 %d", resp.StatusCode)
 	}
 
-	var rel Release
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	var releases []Release
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, fmt.Errorf("解析 Release 失败: %w", err)
 	}
+	if len(releases) == 0 {
+		return nil, fmt.Errorf("仓库 %s 尚未发布版本", Repo)
+	}
+	rel := releases[0]
 	if strings.TrimSpace(rel.TagName) == "" {
 		return nil, fmt.Errorf("Release 缺少 tag")
 	}

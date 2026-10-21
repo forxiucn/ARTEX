@@ -258,13 +258,13 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		out["asset_available"] = false
 	}
 
-	cmp, comparable := selfupdate.CompareVersions(current, latest)
+	cmp, comparable := compareCurrentRelease(current, rel)
 	out["comparable"] = comparable
 	out["has_update"] = comparable && cmp < 0
 	if !comparable {
 		// 开发构建（dev / git describe 带后缀）没有可比较的版本号。放行只会
 		// 用正式版覆盖掉本地正在调试的二进制，所以直接不给更新。
-		out["reason"] = fmt.Sprintf("当前版本 %q 不是正式发布版本，已禁用一键更新", current)
+		out["reason"] = fmt.Sprintf("当前版本 %q 不支持一键更新", current)
 	}
 	writeJSON(w, 200, out)
 }
@@ -288,9 +288,9 @@ func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, err.Error())
 		return
 	}
-	cmp, comparable := selfupdate.CompareVersions(current, rel.TagName)
+	cmp, comparable := compareCurrentRelease(current, rel)
 	if !comparable {
-		writeErr(w, 400, fmt.Sprintf("当前版本 %q 不是正式发布版本，已禁用一键更新", current))
+		writeErr(w, 400, fmt.Sprintf("当前版本 %q 不支持一键更新", current))
 		return
 	}
 	if cmp >= 0 {
@@ -321,6 +321,20 @@ func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	writeJSON(w, 202, map[string]any{"ok": true, "target": rel.TagName})
+}
+
+// A locally built Docker image is deliberately versioned "dev". Let it move to a
+// signed beta release once, so users can enter the release channel without first
+// replacing the whole image. Other development builds remain protected.
+func compareCurrentRelease(current string, rel *selfupdate.Release) (int, bool) {
+	cmp, comparable := selfupdate.CompareVersions(current, rel.TagName)
+	if comparable {
+		return cmp, true
+	}
+	if current == "dev" && selfupdate.InDocker() && rel.Prerelease && selfupdate.IsPrereleaseVersion(rel.TagName) {
+		return -1, true
+	}
+	return 0, false
 }
 
 // updateRollback 主动退回上一版本（换装前备份的 artex.old）。
